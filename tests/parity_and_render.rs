@@ -112,6 +112,7 @@ fn test_golden_render_all_themes_and_states() {
     for theme_name in [
         "classic",
         "dark",
+        "nord",
         "neon",
         "solarized",
         "bloodshot",

@@ -1,11 +1,13 @@
 use crate::render::build_xshape_bitmask;
+use crate::window::icon::load_x11_net_wm_icons;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use tiny_skia::Pixmap;
 use winit::window::Window;
 use x11rb::connection::Connection;
 use x11rb::protocol::shape::{ConnectionExt as ShapeExt, SK, SO};
 use x11rb::protocol::xproto::{
-    ClipOrdering, ConnectionExt as XProtoExt, CreateGCAux, ImageFormat, Rectangle,
+    AtomEnum, ClipOrdering, ConnectionExt as XProtoExt, CreateGCAux, ImageFormat, PropMode,
+    Rectangle,
 };
 use x11rb::rust_connection::RustConnection;
 
@@ -152,6 +154,58 @@ impl X11ShapeManager {
             .shape_mask(SO::SET, SK::BOUNDING, win_id, 0, 0, mask_pixmap);
         let _ = self.conn.free_gc(gc);
         let _ = self.conn.free_pixmap(mask_pixmap);
+        let _ = self.conn.flush();
+    }
+
+    /// Sets `_NET_WM_ICON` and `_NET_WM_DESKTOP_FILE` so KDE Plasma and other task managers/docks
+    /// display the official high-resolution application icon and allow pinning to the dock/panel.
+    pub fn setup_window_desktop_properties(&self, window: &Window) {
+        let Some(win_id) = Self::extract_x11_window(window) else {
+            return;
+        };
+
+        // 1. Set multi-resolution _NET_WM_ICON (16x16 up to 256x256)
+        let icon_data = load_x11_net_wm_icons();
+        if !icon_data.is_empty() {
+            if let Ok(atom_cookie) = self.conn.intern_atom(false, b"_NET_WM_ICON") {
+                if let Ok(reply) = atom_cookie.reply() {
+                    if reply.atom != x11rb::NONE {
+                        let mut byte_data = Vec::with_capacity(icon_data.len() * 4);
+                        for val in icon_data {
+                            byte_data.extend_from_slice(&val.to_ne_bytes());
+                        }
+                        let _ = self.conn.change_property(
+                            PropMode::REPLACE,
+                            win_id,
+                            reply.atom,
+                            AtomEnum::CARDINAL,
+                            32,
+                            (byte_data.len() / 4) as u32,
+                            &byte_data,
+                        );
+                    }
+                }
+            }
+        }
+
+        // 2. Set _NET_WM_DESKTOP_FILE to "qeyes.desktop" for KDE Task Manager / Latte Dock pinning
+        if let Ok(atom_cookie) = self.conn.intern_atom(false, b"_NET_WM_DESKTOP_FILE") {
+            if let Ok(reply) = atom_cookie.reply() {
+                if reply.atom != x11rb::NONE {
+                    let desktop_name = b"qeyes.desktop";
+                    let _ = self.conn.change_property(
+                        PropMode::REPLACE,
+                        win_id,
+                        reply.atom,
+                        AtomEnum::STRING,
+                        8,
+                        desktop_name.len() as u32,
+                        desktop_name,
+                    );
+                }
+            }
+        }
+
         let _ = self.conn.flush();
     }
 }

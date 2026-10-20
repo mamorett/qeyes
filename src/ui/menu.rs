@@ -1,6 +1,11 @@
 use crate::config::Settings;
 use crate::geometry::{Point, Rect, Size};
 
+/// Minimum logical window dimensions while the context menu is open so that
+/// the menu is always rendered at full, readable size even when the eyes are shrunk.
+pub const MENU_MIN_LOGICAL_WIDTH: u32 = 168;
+pub const MENU_MIN_LOGICAL_HEIGHT: u32 = 176;
+
 /// Actions that can be triggered from the interactive context menu or keyboard shortcuts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuAction {
@@ -99,12 +104,15 @@ impl ContextMenuState {
     }
 
     /// Computes the bounding rectangle and row height of the context menu in physical pixels.
+    /// Keeps a fixed, readable row height (`16 * scale`) so text never becomes squashed or unreadable.
     pub fn layout_rect(&self, win_size: Size, scale: f64, entry_count: usize) -> (Rect, f64) {
         let s = scale.max(1.0);
-        let row_h = (16.0 * s).min((win_size.height - 4.0 * s).max(10.0) / (entry_count as f64));
-        let row_h = row_h.max(8.0);
-        let menu_w = (152.0 * s).min((win_size.width - 4.0 * s).max(40.0));
-        let menu_h = (row_h * entry_count as f64 + 6.0 * s).min(win_size.height);
+        let row_h = (16.0 * s).round();
+        let desired_w = (158.0 * s).round();
+        let desired_h = (row_h * entry_count as f64 + 6.0 * s).round();
+
+        let menu_w = desired_w.min(win_size.width.max(40.0));
+        let menu_h = desired_h.min(win_size.height.max(40.0));
 
         let max_x = (win_size.width - menu_w - 2.0 * s).max(0.0);
         let min_x = (2.0 * s).min(max_x);
@@ -117,7 +125,25 @@ impl ContextMenuState {
         (Rect::new(x, y, menu_w, menu_h), row_h)
     }
 
-    /// Hit-tests a pointer position in physical pixels against the open menu.
+    /// Returns true if `pt` (in physical window pixels) lies anywhere inside the open menu panel.
+    pub fn contains_point(
+        &self,
+        pt: Point,
+        win_size: Size,
+        scale: f64,
+        entry_count: usize,
+    ) -> bool {
+        if !self.visible || entry_count == 0 {
+            return false;
+        }
+        let (rect, _) = self.layout_rect(win_size, scale, entry_count);
+        pt.x >= rect.x
+            && pt.x <= rect.x + rect.width
+            && pt.y >= rect.y
+            && pt.y <= rect.y + rect.height
+    }
+
+    /// Hit-tests a pointer position in physical pixels against the open menu rows.
     pub fn hit_test(
         &self,
         pt: Point,

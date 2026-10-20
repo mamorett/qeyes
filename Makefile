@@ -170,12 +170,22 @@ install: build
 	install -m 644 "assets/qeyes.desktop" "$(DESTDIR)$(PREFIX)/share/applications/qeyes.desktop"
 	install -d "$(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps"
 	install -m 644 "assets/qeyes.svg" "$(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/qeyes.svg"
+	@for sz in 16 32 48 64 128 256; do \
+		install -d "$(DESTDIR)$(PREFIX)/share/icons/hicolor/$${sz}x$${sz}/apps"; \
+		install -m 644 "assets/qeyes-$${sz}.png" "$(DESTDIR)$(PREFIX)/share/icons/hicolor/$${sz}x$${sz}/apps/qeyes.png"; \
+	done
+	install -d "$(DESTDIR)$(PREFIX)/share/pixmaps"
+	install -m 644 "assets/qeyes-256.png" "$(DESTDIR)$(PREFIX)/share/pixmaps/qeyes.png"
 
 uninstall:
 	rm -f "$(DESTDIR)$(PREFIX)/bin/$(BINARY_NAME)"
 	rm -f "$(DESTDIR)$(PREFIX)/share/man/man1/qeyes.1"
 	rm -f "$(DESTDIR)$(PREFIX)/share/applications/qeyes.desktop"
 	rm -f "$(DESTDIR)$(PREFIX)/share/icons/hicolor/scalable/apps/qeyes.svg"
+	@for sz in 16 32 48 64 128 256; do \
+		rm -f "$(DESTDIR)$(PREFIX)/share/icons/hicolor/$${sz}x$${sz}/apps/qeyes.png"; \
+	done
+	rm -f "$(DESTDIR)$(PREFIX)/share/pixmaps/qeyes.png"
 
 clean:
 	$(CARGO) clean

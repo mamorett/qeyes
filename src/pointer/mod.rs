@@ -19,6 +19,12 @@ pub trait PointerSource {
 
     /// Returns the raw global screen pointer position in physical pixels (used by `--dump-state`).
     fn global_position(&mut self) -> Option<Point>;
+
+    /// Returns true if any mouse button (left, middle, or right) is currently pressed globally.
+    /// Used to dismiss the popup context menu when clicking outside the window on the desktop.
+    fn is_any_button_down(&mut self) -> bool {
+        false
+    }
 }
 
 /// Creates the platform-appropriate `PointerSource`.

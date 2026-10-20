@@ -62,4 +62,8 @@ impl PointerSource for MacOsPointerSource {
             Some(Point::new(screen_pt.x, primary_h - screen_pt.y))
         }
     }
+
+    fn is_any_button_down(&mut self) -> bool {
+        unsafe { NSEvent::pressedMouseButtons() != 0 }
+    }
 }

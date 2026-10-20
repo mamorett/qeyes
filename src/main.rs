@@ -132,6 +132,7 @@ fn main() -> ExitCode {
     }
 
     check_wayland_session_notice();
+    qeyes::platform::ensure_desktop_integration();
 
     let event_loop = match create_platform_event_loop() {
         Ok(el) => el,

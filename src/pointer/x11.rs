@@ -9,13 +9,18 @@ use x11rb::rust_connection::RustConnection;
 pub struct X11PointerSource {
     conn: RustConnection,
     root_window: u32,
+    last_button_mask: u16,
 }
 
 impl X11PointerSource {
     pub fn new(display_name: Option<&str>) -> Option<Self> {
         let (conn, screen_num) = x11rb::connect(display_name).ok()?;
         let root_window = conn.setup().roots.get(screen_num)?.root;
-        Some(Self { conn, root_window })
+        Some(Self {
+            conn,
+            root_window,
+            last_button_mask: 0,
+        })
     }
 
     fn extract_x11_window(window: &Window) -> Option<u32> {
@@ -33,6 +38,7 @@ impl PointerSource for X11PointerSource {
         if let Some(win_id) = Self::extract_x11_window(window) {
             if let Ok(cookie) = self.conn.query_pointer(win_id) {
                 if let Ok(reply) = cookie.reply() {
+                    self.last_button_mask = u16::from(reply.mask);
                     return Some(Point::new(reply.win_x as f64, reply.win_y as f64));
                 }
             }
@@ -57,6 +63,12 @@ impl PointerSource for X11PointerSource {
             .ok()?
             .reply()
             .ok()?;
+        self.last_button_mask = u16::from(reply.mask);
         Some(Point::new(reply.root_x as f64, reply.root_y as f64))
+    }
+
+    fn is_any_button_down(&mut self) -> bool {
+        // Button1Mask (1<<8) | Button2Mask (1<<9) | Button3Mask (1<<10) = 0x0700
+        (self.last_button_mask & 0x0700) != 0
     }
 }

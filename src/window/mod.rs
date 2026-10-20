@@ -1,3 +1,4 @@
+pub mod icon;
 pub mod resize;
 #[cfg(target_os = "linux")]
 pub mod shape_x11;

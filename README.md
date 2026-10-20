@@ -1,5 +1,9 @@
 # qeyes
 
+<p align="center">
+  <img src="logo.png" alt="qeyes logo" width="400" />
+</p>
+
 **`qeyes`** is a fast, lightweight, modern cross-platform reimplementation of the classic X11 `xeyes` written in Rust. It displays a pair of resizable eyes on your desktop whose pupils follow your mouse pointer anywhere on the screen across all monitors.
 
 ---
@@ -17,7 +21,7 @@
   - Smooth anti-aliased alpha compositing on modern desktops (KWin, Mutter, macOS Aqua, Windows DWM), plus automatic 1-bit **X11 Shape extension (`XShape`)** bounding/input masks on compositor-less X11 window managers.
 - **Modern Extras**:
   - **Freely Resizable & Persistent**: Drag the interior to move, drag edges/corners or use `+`/`-`/mouse wheel to resize. Size, position, and settings are atomically saved per user (and per `--profile NAME`).
-  - **Interactive Right-Click Context Menu**: Toggle Always on Top, Shaped Window, Antialiasing, Aspect Lock, Blinking, Smooth Tracking, Run at Login, or cycle through 7 built-in themes (*Classic*, *Dark*, *Neon*, *Solarized*, *Bloodshot*, *Cartoon*, *Monochrome*).
+  - **Interactive Right-Click Context Menu**: Toggle Always on Top, Shaped Window, Antialiasing, Aspect Lock, Blinking, Smooth Tracking, Run at Login, or cycle through 8 built-in themes (*Classic*, *Dark*, *Nord*, *Neon*, *Solarized*, *Bloodshot*, *Cartoon*, *Monochrome*).
   - **Near-Zero Idle CPU**: Adaptive polling drops from 60 Hz during cursor motion to 10 Hz / 4 Hz when idle and only redraws when pupil coordinates change.
 
 ---

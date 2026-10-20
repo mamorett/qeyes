@@ -171,6 +171,14 @@ pub const BUILTIN_THEMES: &[ThemePalette] = &[
         pupil_scale: None,
     },
     ThemePalette {
+        name: "nord",
+        foreground: Color::rgb(136, 192, 208),
+        background: Color::rgb(46, 52, 64),
+        outline: Color::rgb(129, 161, 193),
+        center: Color::rgb(136, 192, 208),
+        pupil_scale: None,
+    },
+    ThemePalette {
         name: "neon",
         foreground: Color::rgb(0, 255, 204),
         background: Color::rgb(14, 12, 28),

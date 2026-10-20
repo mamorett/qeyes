@@ -93,7 +93,7 @@ pub struct CliArgs {
     #[arg(long = "title", value_name = "TITLE")]
     pub title: Option<String>,
 
-    /// Built-in visual theme (`classic`, `dark`, `neon`, `solarized`, `bloodshot`, `cartoon`, `monochrome`)
+    /// Built-in visual theme (`classic`, `dark`, `nord`, `neon`, `solarized`, `bloodshot`, `cartoon`, `monochrome`)
     #[arg(long = "theme", value_name = "THEME")]
     pub theme: Option<String>,
 

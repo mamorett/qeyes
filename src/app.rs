@@ -7,7 +7,9 @@ use crate::platform::set_autostart;
 use crate::pointer::{create_pointer_source, PointerSource};
 use crate::render::theme::next_theme_name;
 use crate::render::{pixmap_to_softbuffer_u32, render_eyes_frame};
-use crate::ui::menu::{ContextMenuState, MenuAction};
+use crate::ui::menu::{
+    ContextMenuState, MenuAction, MENU_MIN_LOGICAL_HEIGHT, MENU_MIN_LOGICAL_WIDTH,
+};
 use crate::window::apply_window_attributes;
 use crate::window::resize::{direction_to_cursor_icon, hit_test_resize_grip, scale_logical_size};
 #[cfg(target_os = "linux")]
@@ -22,7 +24,7 @@ use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 /// JSON diagnostic payload emitted by `qeyes --dump-state`.
 #[derive(Debug, Clone, Serialize)]
@@ -119,6 +121,7 @@ pub struct QEyesApp {
     blink_started_at: Option<Instant>,
     last_blink_openness: f64,
     menu: ContextMenuState,
+    global_button_was_down: bool,
     modifiers: ModifiersState,
     config_dirty_since: Option<Instant>,
     initial_position_applied: bool,
@@ -161,6 +164,7 @@ impl QEyesApp {
             blink_started_at: None,
             last_blink_openness: 1.0,
             menu: ContextMenuState::default(),
+            global_button_was_down: false,
             modifiers: ModifiersState::empty(),
             config_dirty_since: None,
             initial_position_applied: false,
@@ -195,6 +199,40 @@ impl QEyesApp {
         }
     }
 
+    /// Opens the right-click context menu, temporarily expanding the window canvas if the
+    /// eyes are currently shrunk smaller than the minimum readable menu dimensions.
+    fn open_menu(&mut self, pos: Point) {
+        self.menu.open(pos);
+        self.global_button_was_down = true;
+
+        if let Some(ref win) = self.window {
+            win.set_cursor(CursorIcon::Default);
+            let target_w = self.settings.window.width.max(MENU_MIN_LOGICAL_WIDTH);
+            let target_h = self.settings.window.height.max(MENU_MIN_LOGICAL_HEIGHT);
+            if target_w > self.settings.window.width || target_h > self.settings.window.height {
+                let _ = win.request_inner_size(LogicalSize::new(target_w, target_h));
+            }
+            win.request_redraw();
+        }
+    }
+
+    /// Closes the context menu and restores the window size to the configured eye dimensions
+    /// if it was temporarily expanded for menu readability.
+    fn close_menu(&mut self) {
+        if !self.menu.visible {
+            return;
+        }
+        self.menu.close();
+
+        if let Some(ref win) = self.window {
+            let _ = win.request_inner_size(LogicalSize::new(
+                self.settings.window.width,
+                self.settings.window.height,
+            ));
+            win.request_redraw();
+        }
+    }
+
     fn compute_blink_openness(&mut self, now: Instant) -> f64 {
         if !self.settings.behavior.blink {
             self.blink_started_at = None;
@@ -214,14 +252,12 @@ impl QEyesApp {
             let blink_duration_ms = 150.0;
             if elapsed_ms >= blink_duration_ms {
                 self.blink_started_at = None;
-                // Deterministic pseudo-random interval between 3.2s and 6.8s based on pupil coords
                 let jitter = ((self.left_pupil.x.abs() * 37.0 + self.right_pupil.y.abs() * 19.0)
                     as u64)
                     % 3600;
                 self.next_blink_at = now + Duration::from_millis(3200 + jitter);
                 return base_openness;
             }
-            // Triangle wave 1.0 -> 0.0 -> 1.0
             let phase = (elapsed_ms / (blink_duration_ms * 0.5) - 1.0).abs();
             return (phase * base_openness).clamp(0.0, 1.0);
         }
@@ -242,9 +278,24 @@ impl QEyesApp {
         }
 
         let (w, h, scale) = self.current_physical_size();
+        let eyes_w = if self.menu.visible {
+            ((self.settings.window.width as f64) * scale)
+                .round()
+                .clamp(1.0, w as f64)
+        } else {
+            w as f64
+        };
+        let eyes_h = if self.menu.visible {
+            ((self.settings.window.height as f64) * scale)
+                .round()
+                .clamp(1.0, h as f64)
+        } else {
+            h as f64
+        };
+
         let outline_override = self.settings.appearance.outline_width.map(|bw| bw * scale);
         let layout = EyesLayout::compute(
-            Size::new(w as f64, h as f64),
+            Size::new(eyes_w, eyes_h),
             outline_override,
             self.settings.appearance.pupil_scale,
         );
@@ -345,6 +396,9 @@ impl QEyesApp {
     }
 
     fn scale_window_by(&mut self, factor: f64) {
+        if self.menu.visible {
+            self.close_menu();
+        }
         let current = Size::new(
             self.settings.window.width as f64,
             self.settings.window.height as f64,
@@ -424,7 +478,6 @@ impl ApplicationHandler for QEyesApp {
             return;
         }
 
-        // Gather connected monitors for geometry offset resolution and off-screen clamping
         let mut monitor_rects = Vec::new();
         for mon in event_loop.available_monitors() {
             let s = mon.scale_factor().max(1.0);
@@ -494,14 +547,23 @@ impl ApplicationHandler for QEyesApp {
             .with_transparent(true)
             .with_decorations(self.settings.window.decorations);
 
+        if let Some(app_icon) = crate::window::icon::load_app_window_icon() {
+            attrs = attrs.with_window_icon(Some(app_icon));
+        }
+
         if let Some((px, py)) = target_pos {
             attrs = attrs.with_position(LogicalPosition::new(px, py));
         }
 
         #[cfg(target_os = "linux")]
         {
-            use winit::platform::x11::WindowAttributesExtX11;
-            attrs = attrs.with_name(&self.settings.window.app_name, "Eyes");
+            use winit::platform::x11::{WindowAttributesExtX11, WindowType};
+            attrs = attrs
+                .with_name(
+                    &self.settings.window.app_name,
+                    &self.settings.window.app_name,
+                )
+                .with_x11_window_type(vec![WindowType::Normal]);
         }
 
         let win = match event_loop.create_window(attrs) {
@@ -514,6 +576,11 @@ impl ApplicationHandler for QEyesApp {
         };
 
         apply_window_attributes(&win, &self.settings);
+
+        #[cfg(target_os = "linux")]
+        if let Some(ref shape_mgr) = self.x11_shape {
+            shape_mgr.setup_window_desktop_properties(&win);
+        }
 
         if let Some((px, py)) = target_pos {
             win.set_outer_position(LogicalPosition::new(px, py));
@@ -556,6 +623,11 @@ impl ApplicationHandler for QEyesApp {
                 self.flush_config_now();
                 event_loop.exit();
             }
+            WindowEvent::Focused(false) => {
+                if self.menu.visible {
+                    self.close_menu();
+                }
+            }
             WindowEvent::ModifiersChanged(mods) => {
                 self.modifiers = mods.state();
             }
@@ -568,7 +640,8 @@ impl ApplicationHandler for QEyesApp {
                         .unwrap_or(1.0);
                     let lw = ((width as f64) / scale).round() as u32;
                     let lh = ((height as f64) / scale).round() as u32;
-                    if lw >= 48 && lh >= 32 {
+                    // Do not overwrite user's eye size while the window is temporarily expanded for the menu
+                    if !self.menu.visible && lw >= 48 && lh >= 32 {
                         self.settings.window.width = lw;
                         self.settings.window.height = lh;
                         if self.cli_geometry.is_none() {
@@ -637,29 +710,24 @@ impl ApplicationHandler for QEyesApp {
                 match button {
                     MouseButton::Right => {
                         if self.menu.visible {
-                            self.menu.close();
+                            self.close_menu();
                         } else {
-                            self.menu.open(self.last_cursor);
-                        }
-                        if let Some(ref win) = self.window {
-                            win.request_redraw();
+                            self.open_menu(self.last_cursor);
                         }
                     }
                     MouseButton::Left => {
                         if self.menu.visible {
                             let entries = ContextMenuState::entries(&self.settings);
-                            if let Some(idx) =
-                                self.menu
-                                    .hit_test(self.last_cursor, win_size, scale, entries.len())
-                            {
+                            let hit = self.menu.hit_test(
+                                self.last_cursor,
+                                win_size,
+                                scale,
+                                entries.len(),
+                            );
+                            self.close_menu();
+                            if let Some(idx) = hit {
                                 let action = entries[idx].action;
-                                self.menu.close();
                                 self.execute_menu_action(action, event_loop);
-                            } else {
-                                self.menu.close();
-                                if let Some(ref win) = self.window {
-                                    win.request_redraw();
-                                }
                             }
                             return;
                         }
@@ -679,7 +747,11 @@ impl ApplicationHandler for QEyesApp {
                             }
                         }
                     }
-                    _ => {}
+                    _ => {
+                        if self.menu.visible {
+                            self.close_menu();
+                        }
+                    }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -701,10 +773,7 @@ impl ApplicationHandler for QEyesApp {
                 match &event.logical_key {
                     Key::Named(NamedKey::Escape) => {
                         if self.menu.visible {
-                            self.menu.close();
-                            if let Some(ref win) = self.window {
-                                win.request_redraw();
-                            }
+                            self.close_menu();
                         } else {
                             self.flush_config_now();
                             event_loop.exit();
@@ -725,6 +794,7 @@ impl ApplicationHandler for QEyesApp {
                         }
                         "0" => {
                             self.cli_geometry = None;
+                            self.close_menu();
                             self.execute_menu_action(MenuAction::ResetSizeAndPos, event_loop);
                         }
                         "a" | "A" => {
@@ -768,6 +838,21 @@ impl ApplicationHandler for QEyesApp {
             }
         }
 
+        // Detect clicks outside the menu (including anywhere on the desktop outside the window)
+        let button_down = self.pointer_source.is_any_button_down();
+        if self.menu.visible && button_down && !self.global_button_was_down {
+            let (w, h, scale) = self.current_physical_size();
+            let win_size = Size::new(w as f64, h as f64);
+            let entry_count = ContextMenuState::entries(&self.settings).len();
+            if !self
+                .menu
+                .contains_point(self.last_cursor, win_size, scale, entry_count)
+            {
+                self.close_menu();
+            }
+        }
+        self.global_button_was_down = button_down;
+
         // Flush debounced config writes after 500 ms
         if let Some(dirty_at) = self.config_dirty_since {
             if now.duration_since(dirty_at) >= Duration::from_millis(500) {
@@ -775,12 +860,12 @@ impl ApplicationHandler for QEyesApp {
             }
         }
 
-        // Adaptive polling cadence:
-        // - 60 Hz (16 ms) while pointer is moving (< 1s since last move) or blinking animation active
-        // - 10 Hz (100 ms) between 1s and 10s of pointer inactivity
-        // - 4 Hz (250 ms) after 10s of pointer inactivity
+        // Keep 60 Hz polling while menu is open so outside clicks dismiss immediately
         let idle = now.duration_since(self.last_pointer_move);
-        let interval = if self.blink_started_at.is_some() || idle < Duration::from_secs(1) {
+        let interval = if self.menu.visible
+            || self.blink_started_at.is_some()
+            || idle < Duration::from_secs(1)
+        {
             Duration::from_millis(16)
         } else if idle < Duration::from_secs(10) {
             Duration::from_millis(100)

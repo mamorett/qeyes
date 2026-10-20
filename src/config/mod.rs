@@ -271,8 +271,11 @@ impl Settings {
             self.window.title = title.clone();
         }
         if let Some(ref theme) = cli.theme {
-            let pal = lookup_theme(theme)
-                .ok_or_else(|| format!("Unknown theme '{theme}'. Valid themes: classic, dark, neon, solarized, bloodshot, cartoon, monochrome"))?;
+            let pal = lookup_theme(theme).ok_or_else(|| {
+                format!(
+                    "Unknown theme '{theme}'. Valid themes: classic, dark, nord, neon, solarized, bloodshot, cartoon, monochrome"
+                )
+            })?;
             self.appearance.theme = pal.name.to_string();
             // Switching theme via CLI clears custom per-channel overrides unless also passed on CLI
             self.appearance.foreground = None;

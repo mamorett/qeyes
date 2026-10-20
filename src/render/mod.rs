@@ -31,11 +31,26 @@ pub fn render_eyes_frame(
     let colors = settings.resolved_colors();
     let antialias = settings.appearance.antialias;
 
-    // 1. Background outside eyes
-    if !settings.appearance.shaped {
-        pixmap.fill(colors.background.to_tiny_skia());
+    let menu_visible = menu.map(|m| m.visible).unwrap_or(false);
+    let eyes_w = if menu_visible {
+        ((settings.window.width as f64) * scale_factor.max(1.0))
+            .round()
+            .clamp(1.0, w as f64)
     } else {
-        pixmap.fill(tiny_skia::Color::TRANSPARENT);
+        w as f64
+    };
+    let eyes_h = if menu_visible {
+        ((settings.window.height as f64) * scale_factor.max(1.0))
+            .round()
+            .clamp(1.0, h as f64)
+    } else {
+        h as f64
+    };
+
+    // 1. Background outside eyes
+    pixmap.fill(tiny_skia::Color::TRANSPARENT);
+    if !settings.appearance.shaped {
+        fill_rect(&mut pixmap, 0.0, 0.0, eyes_w, eyes_h, colors.background);
     }
 
     let outline_override = settings
@@ -43,7 +58,7 @@ pub fn render_eyes_frame(
         .outline_width
         .map(|bw| bw * scale_factor.max(1.0));
     let layout = EyesLayout::compute(
-        Size::new(w as f64, h as f64),
+        Size::new(eyes_w, eyes_h),
         outline_override,
         settings.appearance.pupil_scale,
     );
