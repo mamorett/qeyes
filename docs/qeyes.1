@@ -1,0 +1,119 @@
+.TH QEYES 1 "October 2026" "qeyes 0.1.0" "User Commands"
+.SH NAME
+qeyes \- a modern, cross-platform reimplementation of the classic X11 xeyes
+.SH SYNOPSIS
+.B qeyes
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B qeyes
+displays a pair of resizable eyes on the desktop that follow the global mouse pointer
+across the entire screen (including multiple monitors). It supports all classic
+.BR xeyes (1)
+command-line options and X11 resource settings as well as modern enhancements such as
+anti-aliased vector rendering, built-in themes, persistent window size/position,
+periodic blinking, smooth pupil tracking, always-on-top, and click-through mode.
+.SH CLASSIC X11 OPTIONS
+.TP
+.BI \-geometry " WxH+X+Y"
+Initial window size and position (for example, \fB300x150+100+100\fR or \fB\-0\-0\fR).
+.TP
+.BI \-display " DISPLAY"
+Specify the X11 display connection string (Linux/X11).
+.TP
+.BI \-fg ", " \-foreground " COLOR"
+Choose the foreground color used for pupils and outlines (supports X11 color names,
+\fB#rgb\fR, \fB#rrggbb\fR, and \fBrgb:r/g/b\fR).
+.TP
+.BI \-bg ", " \-background " COLOR"
+Choose the background color used for the eye interior (sclera).
+.TP
+.BI \-outline " COLOR"
+Choose the color of the eye outline ring.
+.TP
+.BI \-center " COLOR"
+Choose the color of the pupils.
+.TP
+.BI \-bw ", " \-borderwidth " PIXELS"
+Set the eye outline thickness in pixels.
+.TP
+.BR \-rv " / " +rv
+Enable (\fB\-rv\fR) or disable (\fB+rv\fR) reverse video (swaps foreground and background).
+.TP
+.BR \-shape " / " +shape
+Enable (\fB\-shape\fR, default) or disable (\fB+shape\fR) shaped transparent window mode.
+.TP
+.BR \-render " / " +render " / " \-no\-render
+Enable (\fB\-render\fR, default) or disable (\fB+render\fR, \fB\-no\-render\fR) anti-aliased rendering.
+.TP
+.BI \-xrm " RESOURCE"
+Specify an X11 resource string override, e.g. \fB'Eyes.foreground: red'\fR.
+.TP
+.BI \-name " NAME"
+Specify the application instance name (\fBWM_CLASS\fR).
+.TP
+.BI \-title " TITLE"
+Specify the window title.
+.SH MODERN OPTIONS
+.TP
+.BI \-\-theme " NAME"
+Select a built-in theme (\fBclassic\fR, \fBdark\fR, \fBneon\fR, \fBsolarized\fR, \fBbloodshot\fR, \fBcartoon\fR, \fBmonochrome\fR).
+.TP
+.B \-\-always\-on\-top
+Keep the window above all other windows.
+.TP
+.B \-\-click\-through
+Allow mouse clicks to pass through the window.
+.TP
+.B \-\-decorations
+Show standard OS window frame and title bar.
+.TP
+.B \-\-lock\-aspect
+Lock aspect ratio when resizing.
+.TP
+.B \-\-blink
+Enable natural periodic blinking and sleepy idle eyes.
+.TP
+.B \-\-smooth
+Enable smooth pupil movement interpolation.
+.TP
+.BI \-\-profile " NAME"
+Use an isolated configuration profile (\fBconfig.<NAME>.toml\fR).
+.TP
+.BI \-\-config " PATH"
+Use an explicit configuration file path.
+.TP
+.B \-\-save
+Persist CLI overrides (including \fB\-geometry\fR) to the configuration file.
+.TP
+.B \-\-reset\-config
+Reset configuration file to built-in defaults.
+.TP
+.B \-\-print\-config
+Print effective TOML configuration to stdout and exit.
+.SH INTERACTIVE CONTROLS
+.IP "\(bu" 2
+\fBLeft-drag interior\fR: Move the window.
+.IP "\(bu" 2
+\fBLeft-drag edges/corners\fR: Resize the window freely.
+.IP "\(bu" 2
+\fBRight-click\fR: Toggle the interactive context menu.
+.IP "\(bu" 2
+\fB+\fR / \fB\-\fR / \fBMouse Wheel\fR: Scale the window up or down by 10%.
+.IP "\(bu" 2
+\fB0\fR: Reset to default size (150x100).
+.IP "\(bu" 2
+\fBA\fR, \fBS\fR, \fBR\fR, \fBB\fR, \fBT\fR: Toggle Always-on-Top, Shaped, Reverse Video, Blinking, or cycle Themes.
+.IP "\(bu" 2
+\fBEscape\fR / \fBQ\fR: Quit \fBqeyes\fR.
+.SH FILES
+.TP
+.I ~/.config/qeyes/config.toml
+User configuration on Linux.
+.TP
+.I ~/Library/Application Support/qeyes/config.toml
+User configuration on macOS.
+.TP
+.I %APPDATA%\\qeyes\\config.toml
+User configuration on Windows.
+.SH AUTHOR
+Mattia Moretti <maccabeo@gmail.com>

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=qeyes
+GenericName=Desktop Eyes
+Comment=A modern cross-platform xeyes whose pupils follow your mouse pointer
+Exec=qeyes
+Icon=qeyes
+Terminal=false
+Categories=Utility;Amusement;
+Keywords=xeyes;eyes;mouse;cursor;pointer;x11;
+StartupWMClass=qeyes
+StartupNotify=false

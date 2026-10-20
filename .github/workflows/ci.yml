@@ -1,0 +1,129 @@
+name: CI - Build & Test All Platforms
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Format & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run make lint
+        run: make lint
+
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64 (Xvfb)
+            os: ubuntu-latest
+            xvfb: true
+          - name: Linux arm64 (Xvfb)
+            os: ubuntu-24.04-arm
+            xvfb: true
+          - name: macOS (Apple Silicon)
+            os: macos-14
+            xvfb: false
+          - name: Windows x86_64
+            os: windows-latest
+            xvfb: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux X11 test dependencies
+        if: matrix.xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb xdotool libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxcb1-dev libxkbcommon-dev
+      - name: Run tests (Xvfb on Linux)
+        if: matrix.xvfb
+        run: make test-xvfb
+      - name: Run tests (macOS / Windows)
+        if: "!matrix.xvfb"
+        run: cargo test --all-targets --locked
+
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            make_target: build-linux-x86_64
+            artifact_path: target/x86_64-unknown-linux-gnu/release/qeyes
+            artifact_name: qeyes-linux-x86_64
+          - name: Linux arm64 (aarch64)
+            os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            make_target: build-linux-arm64
+            artifact_path: target/aarch64-unknown-linux-gnu/release/qeyes
+            artifact_name: qeyes-linux-arm64
+          - name: macOS x86_64 (Intel)
+            os: macos-14
+            target: x86_64-apple-darwin
+            make_target: build-macos-x86_64
+            artifact_path: target/x86_64-apple-darwin/release/qeyes
+            artifact_name: qeyes-macos-x86_64
+          - name: macOS arm64 (Apple Silicon)
+            os: macos-14
+            target: aarch64-apple-darwin
+            make_target: build-macos-arm64
+            artifact_path: target/aarch64-apple-darwin/release/qeyes
+            artifact_name: qeyes-macos-arm64
+          - name: macOS Universal (.app & .dmg)
+            os: macos-14
+            target: aarch64-apple-darwin,x86_64-apple-darwin
+            make_target: package-macos
+            artifact_path: dist/*
+            artifact_name: qeyes-macos-universal
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            make_target: build-windows-x86_64
+            artifact_path: target/x86_64-pc-windows-msvc/release/qeyes.exe
+            artifact_name: qeyes-windows-x86_64
+          - name: Windows arm64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+            make_target: build-windows-arm64
+            artifact_path: target/aarch64-pc-windows-msvc/release/qeyes.exe
+            artifact_name: qeyes-windows-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux development packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxcb1-dev libxkbcommon-dev
+      - name: Build target via Makefile
+        run: make ${{ matrix.make_target }}
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
