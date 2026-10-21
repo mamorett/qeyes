@@ -14,6 +14,8 @@
     <string>0.1.0</string>
     <key>CFBundleExecutable</key>
     <string>qeyes</string>
+    <key>CFBundleIconFile</key>
+    <string>qeyes</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>LSMinimumSystemVersion</key>

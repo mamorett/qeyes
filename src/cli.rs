@@ -247,6 +247,11 @@ where
             "-title" => out.push("--title".to_string()),
 
             other => {
+                // Ignore macOS Process Serial Number argument (-psn_...) passed by Finder/LaunchServices
+                if other.starts_with("-psn") {
+                    continue;
+                }
+
                 // Also support `-geometry=WxH+X+Y`
                 if let Some(val) = other.strip_prefix("-geometry=") {
                     out.push(format!("--geometry={val}"));
@@ -315,5 +320,11 @@ mod tests {
         assert!(args.no_rv);
         assert!(args.no_render);
         assert!(args.shape);
+    }
+
+    #[test]
+    fn test_macos_psn_arg_ignored() {
+        let args = CliArgs::parse_from_raw(["qeyes", "-psn_0_1234567"]).unwrap();
+        assert_eq!(args.foreground, None);
     }
 }

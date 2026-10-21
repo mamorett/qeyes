@@ -29,26 +29,66 @@ pub fn hit_test_resize_grip(
     let on_top = pt.y <= edge;
     let on_bottom = pt.y >= h - edge;
 
-    if !on_left && !on_right && !on_top && !on_bottom {
-        return None;
+    if on_left || on_right || on_top || on_bottom {
+        let near_left = pt.x <= corner;
+        let near_right = pt.x >= w - corner;
+        let near_top = pt.y <= corner;
+        let near_bottom = pt.y >= h - corner;
+
+        return match (near_left, near_right, near_top, near_bottom) {
+            (true, _, true, _) => Some(ResizeDirection::NorthWest),
+            (_, true, true, _) => Some(ResizeDirection::NorthEast),
+            (true, _, _, true) => Some(ResizeDirection::SouthWest),
+            (_, true, _, true) => Some(ResizeDirection::SouthEast),
+            _ if on_top => Some(ResizeDirection::North),
+            _ if on_bottom => Some(ResizeDirection::South),
+            _ if on_left => Some(ResizeDirection::West),
+            _ if on_right => Some(ResizeDirection::East),
+            _ => None,
+        };
     }
 
-    let near_left = pt.x <= corner;
-    let near_right = pt.x >= w - corner;
-    let near_top = pt.y <= corner;
-    let near_bottom = pt.y >= h - corner;
+    // Also hit-test the outer curved outline rim of the left/right eyes for shaped windows
+    let rx = (w * 0.25).max(1.0);
+    let ry = (h * 0.50).max(1.0);
+    let left_cx = w * 0.25;
+    let right_cx = w * 0.75;
+    let cy = h * 0.50;
 
-    match (near_left, near_right, near_top, near_bottom) {
-        (true, _, true, _) => Some(ResizeDirection::NorthWest),
-        (_, true, true, _) => Some(ResizeDirection::NorthEast),
-        (true, _, _, true) => Some(ResizeDirection::SouthWest),
-        (_, true, _, true) => Some(ResizeDirection::SouthEast),
-        _ if on_top => Some(ResizeDirection::North),
-        _ if on_bottom => Some(ResizeDirection::South),
-        _ if on_left => Some(ResizeDirection::West),
-        _ if on_right => Some(ResizeDirection::East),
-        _ => None,
+    if pt.x <= left_cx || pt.x >= right_cx {
+        let cx = if pt.x <= w * 0.5 { left_cx } else { right_cx };
+        let nx = (pt.x - cx) / rx;
+        let ny = (pt.y - cy) / ry;
+        let r_out = (nx * nx + ny * ny).sqrt();
+
+        let rx_in = (rx - edge).max(1.0);
+        let ry_in = (ry - edge).max(1.0);
+        let nx_in = (pt.x - cx) / rx_in;
+        let ny_in = (pt.y - cy) / ry_in;
+        let r_in = (nx_in * nx_in + ny_in * ny_in).sqrt();
+
+        if r_out <= 1.05 && r_in >= 1.0 {
+            if ny < -0.35 && nx < -0.35 {
+                return Some(ResizeDirection::NorthWest);
+            } else if ny > 0.35 && nx < -0.35 {
+                return Some(ResizeDirection::SouthWest);
+            } else if ny < -0.35 && nx > 0.35 {
+                return Some(ResizeDirection::NorthEast);
+            } else if ny > 0.35 && nx > 0.35 {
+                return Some(ResizeDirection::SouthEast);
+            } else if ny < -0.75 {
+                return Some(ResizeDirection::North);
+            } else if ny > 0.75 {
+                return Some(ResizeDirection::South);
+            } else if nx < 0.0 {
+                return Some(ResizeDirection::West);
+            } else {
+                return Some(ResizeDirection::East);
+            }
+        }
     }
+
+    None
 }
 
 /// Maps a `ResizeDirection` to the appropriate `winit::window::CursorIcon`.

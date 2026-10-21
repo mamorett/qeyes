@@ -5,8 +5,10 @@ use crate::geometry::{
 };
 use crate::platform::set_autostart;
 use crate::pointer::{create_pointer_source, PointerSource};
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use crate::render::pixmap_to_softbuffer_u32;
+use crate::render::render_eyes_frame;
 use crate::render::theme::next_theme_name;
-use crate::render::{pixmap_to_softbuffer_u32, render_eyes_frame};
 use crate::ui::menu::{
     ContextMenuState, MenuAction, MENU_MIN_LOGICAL_HEIGHT, MENU_MIN_LOGICAL_WIDTH,
 };
@@ -15,6 +17,7 @@ use crate::window::resize::{direction_to_cursor_icon, hit_test_resize_grip, scal
 #[cfg(target_os = "linux")]
 use crate::window::shape_x11::X11ShapeManager;
 use serde::Serialize;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -24,7 +27,15 @@ use winit::dpi::{LogicalPosition, LogicalSize, PhysicalSize};
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
-use winit::window::{CursorIcon, Window, WindowId};
+use winit::window::{CursorIcon, ResizeDirection, Window, WindowId};
+
+#[derive(Debug, Clone, Copy)]
+struct ActiveResize {
+    dir: ResizeDirection,
+    start_global: Point,
+    start_pos: (i32, i32),
+    start_size: (u32, u32),
+}
 
 /// JSON diagnostic payload emitted by `qeyes --dump-state`.
 #[derive(Debug, Clone, Serialize)]
@@ -107,8 +118,10 @@ pub struct QEyesApp {
     settings: Settings,
     config_path: PathBuf,
     cli_geometry: Option<XGeometry>,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     force_xshape: bool,
     window: Option<Rc<Window>>,
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
     pointer_source: Box<dyn PointerSource>,
     #[cfg(target_os = "linux")]
@@ -125,6 +138,7 @@ pub struct QEyesApp {
     modifiers: ModifiersState,
     config_dirty_since: Option<Instant>,
     initial_position_applied: bool,
+    active_resize: Option<ActiveResize>,
 }
 
 impl QEyesApp {
@@ -152,6 +166,7 @@ impl QEyesApp {
             cli_geometry,
             force_xshape,
             window: None,
+            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
             surface: None,
             pointer_source,
             #[cfg(target_os = "linux")]
@@ -168,6 +183,71 @@ impl QEyesApp {
             modifiers: ModifiersState::empty(),
             config_dirty_since: None,
             initial_position_applied: false,
+            active_resize: None,
+        }
+    }
+
+    fn step_software_resize(&mut self) {
+        let Some(resize) = self.active_resize else {
+            return;
+        };
+        if !self.pointer_source.is_any_button_down() {
+            self.active_resize = None;
+            return;
+        }
+        let Some(cur_global) = self.pointer_source.global_position() else {
+            return;
+        };
+        let dx = (cur_global.x - resize.start_global.x).round() as i32;
+        let dy = (cur_global.y - resize.start_global.y).round() as i32;
+
+        let (mut new_x, mut new_y) = resize.start_pos;
+        let mut new_w = resize.start_size.0 as i32;
+        let mut new_h = resize.start_size.1 as i32;
+
+        match resize.dir {
+            ResizeDirection::East | ResizeDirection::NorthEast | ResizeDirection::SouthEast => {
+                new_w = (resize.start_size.0 as i32 + dx).max(48);
+            }
+            ResizeDirection::West | ResizeDirection::NorthWest | ResizeDirection::SouthWest => {
+                let candidate_w = (resize.start_size.0 as i32 - dx).max(48);
+                new_x = resize.start_pos.0 + (resize.start_size.0 as i32 - candidate_w);
+                new_w = candidate_w;
+            }
+            _ => {}
+        }
+
+        match resize.dir {
+            ResizeDirection::South | ResizeDirection::SouthEast | ResizeDirection::SouthWest => {
+                new_h = (resize.start_size.1 as i32 + dy).max(32);
+            }
+            ResizeDirection::North | ResizeDirection::NorthEast | ResizeDirection::NorthWest => {
+                let candidate_h = (resize.start_size.1 as i32 - dy).max(32);
+                new_y = resize.start_pos.1 + (resize.start_size.1 as i32 - candidate_h);
+                new_h = candidate_h;
+            }
+            _ => {}
+        }
+
+        if self.settings.window.lock_aspect && resize.start_size.1 > 0 {
+            let ratio = resize.start_size.0 as f64 / resize.start_size.1 as f64;
+            new_h = ((new_w as f64) / ratio).round().max(32.0) as i32;
+        }
+
+        let uw = new_w.clamp(48, 8192) as u32;
+        let uh = new_h.clamp(32, 8192) as u32;
+
+        if uw != self.settings.window.width
+            || uh != self.settings.window.height
+            || Some(new_x) != self.settings.window.x
+            || Some(new_y) != self.settings.window.y
+        {
+            self.settings.window.x = Some(new_x);
+            self.settings.window.y = Some(new_y);
+            if let Some(ref win) = self.window {
+                win.set_outer_position(LogicalPosition::new(new_x, new_y));
+            }
+            self.resize_window_to_logical(uw, uh);
         }
     }
 
@@ -423,25 +503,11 @@ impl QEyesApp {
         let Some(ref win) = self.window else {
             return;
         };
-        let Some(ref mut surface) = self.surface else {
-            return;
-        };
 
         let phys = win.inner_size();
         let w = phys.width.max(1);
         let h = phys.height.max(1);
         let scale = win.scale_factor().max(1.0);
-
-        let Some(nz_w) = NonZeroU32::new(w) else {
-            return;
-        };
-        let Some(nz_h) = NonZeroU32::new(h) else {
-            return;
-        };
-
-        if surface.resize(nz_w, nz_h).is_err() {
-            return;
-        }
 
         let pixmap = render_eyes_frame(
             &self.settings,
@@ -454,20 +520,46 @@ impl QEyesApp {
             Some(&self.menu),
         );
 
-        #[cfg(target_os = "linux")]
-        if let Some(ref shape_mgr) = self.x11_shape {
-            shape_mgr.update_window_shapes(
-                win,
-                &pixmap,
-                self.settings.appearance.shaped,
-                self.settings.window.click_through,
-                self.force_xshape,
-            );
+        #[cfg(target_os = "macos")]
+        {
+            crate::window::present_macos_pixmap(win, &pixmap, &self.settings);
         }
 
-        if let Ok(mut buffer) = surface.buffer_mut() {
-            pixmap_to_softbuffer_u32(&pixmap, &mut buffer);
-            let _ = buffer.present();
+        #[cfg(target_os = "windows")]
+        {
+            crate::window::present_windows_pixmap(win, &pixmap, &self.settings);
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let Some(ref mut surface) = self.surface else {
+                return;
+            };
+            let Some(nz_w) = NonZeroU32::new(w) else {
+                return;
+            };
+            let Some(nz_h) = NonZeroU32::new(h) else {
+                return;
+            };
+            if surface.resize(nz_w, nz_h).is_err() {
+                return;
+            }
+
+            #[cfg(target_os = "linux")]
+            if let Some(ref shape_mgr) = self.x11_shape {
+                shape_mgr.update_window_shapes(
+                    win,
+                    &pixmap,
+                    self.settings.appearance.shaped,
+                    self.settings.window.click_through,
+                    self.force_xshape,
+                );
+            }
+
+            if let Ok(mut buffer) = surface.buffer_mut() {
+                pixmap_to_softbuffer_u32(&pixmap, &mut buffer);
+                let _ = buffer.present();
+            }
         }
     }
 }
@@ -586,29 +678,33 @@ impl ApplicationHandler for QEyesApp {
             win.set_outer_position(LogicalPosition::new(px, py));
         }
 
-        let context = match softbuffer::Context::new(win.clone()) {
-            Ok(ctx) => ctx,
-            Err(e) => {
-                tracing::error!("Failed to create softbuffer context: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            let context = match softbuffer::Context::new(win.clone()) {
+                Ok(ctx) => ctx,
+                Err(e) => {
+                    tracing::error!("Failed to create softbuffer context: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            };
 
-        let surface = match softbuffer::Surface::new(&context, win.clone()) {
-            Ok(s) => s,
-            Err(e) => {
-                tracing::error!("Failed to create softbuffer surface: {e}");
-                event_loop.exit();
-                return;
-            }
-        };
+            let surface = match softbuffer::Surface::new(&context, win.clone()) {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("Failed to create softbuffer surface: {e}");
+                    event_loop.exit();
+                    return;
+                }
+            };
+            self.surface = Some(surface);
+        }
 
         self.window = Some(win.clone());
-        self.surface = Some(surface);
         self.initial_position_applied = true;
 
         self.update_pointer_and_pupils(Instant::now());
+        self.render_and_present();
         win.request_redraw();
     }
 
@@ -740,7 +836,32 @@ impl ApplicationHandler for QEyesApp {
                                 hit_test_resize_grip(self.last_cursor, win_size, scale)
                             {
                                 if win.drag_resize_window(dir).is_err() {
-                                    let _ = win.drag_window();
+                                    if let Some(global_pt) = self.pointer_source.global_position() {
+                                        let pos = win
+                                            .outer_position()
+                                            .ok()
+                                            .map(|p| {
+                                                (
+                                                    ((p.x as f64) / scale).round() as i32,
+                                                    ((p.y as f64) / scale).round() as i32,
+                                                )
+                                            })
+                                            .unwrap_or((
+                                                self.settings.window.x.unwrap_or(0),
+                                                self.settings.window.y.unwrap_or(0),
+                                            ));
+                                        self.active_resize = Some(ActiveResize {
+                                            dir,
+                                            start_global: global_pt,
+                                            start_pos: pos,
+                                            start_size: (
+                                                self.settings.window.width,
+                                                self.settings.window.height,
+                                            ),
+                                        });
+                                    } else {
+                                        let _ = win.drag_window();
+                                    }
                                 }
                             } else {
                                 let _ = win.drag_window();
@@ -753,6 +874,13 @@ impl ApplicationHandler for QEyesApp {
                         }
                     }
                 }
+            }
+            WindowEvent::MouseInput {
+                state: ElementState::Released,
+                button: MouseButton::Left,
+                ..
+            } => {
+                self.active_resize = None;
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
@@ -832,6 +960,10 @@ impl ApplicationHandler for QEyesApp {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
 
+        if self.active_resize.is_some() {
+            self.step_software_resize();
+        }
+
         if self.update_pointer_and_pupils(now) {
             if let Some(ref win) = self.window {
                 win.request_redraw();
@@ -860,9 +992,10 @@ impl ApplicationHandler for QEyesApp {
             }
         }
 
-        // Keep 60 Hz polling while menu is open so outside clicks dismiss immediately
+        // Keep 60 Hz polling while menu is open or resizing so interactions respond immediately
         let idle = now.duration_since(self.last_pointer_move);
         let interval = if self.menu.visible
+            || self.active_resize.is_some()
             || self.blink_started_at.is_some()
             || idle < Duration::from_secs(1)
         {

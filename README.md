@@ -34,11 +34,16 @@ A `Makefile` is included for building, testing, cross-compiling, packaging, and 
 # Build native release binary
 make build
 
-# Run unit, CLI parity, and Xvfb integration tests
-make test-xvfb
+# Build local macOS QEyes.app bundle
+make app
 
-# Install binary, man page, .desktop entry, and SVG icon (default PREFIX=/usr/local)
-sudo make install
+# Package release for current platform (.dmg on macOS, .tar.gz on Linux, .zip on Windows)
+make package
+
+# Install application
+# On macOS: installs QEyes.app to /Applications (and CLI binary to /usr/local/bin if writable)
+# On Linux: installs binary, man page, .desktop entry, and icons (sudo make install)
+make install
 ```
 
 ### Multi-Platform Build Targets
